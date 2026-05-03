@@ -1,0 +1,12 @@
+Metric,DQN_v1_mean,DQN_v1_std,RoundRobin_mean,RoundRobin_std
+Tổng thời gian chạy (steps),300.0,0.0,300.0,0.0
+Tổng số tác vụ đã tạo,300.0,0.0,300.0,0.0
+Tác vụ được tiếp nhận,56.88,2.1278,120.2767,3.3751
+Tác vụ bị bỏ qua (dropped),243.12,2.1278,179.7233,3.3751
+Tác vụ đã hoàn thành (approx.),32.75,0.5961,71.0,0.0
+Phần thưởng (reward),-226.8464,1.5104,-350.3109,2.5625
+Tổng queue time trung bình,35.0955,0.3286,86.8164,0.5348
+Độ lệch tải (std utilization),0.4181,0.0016,0.0339,0.0028
+Tần suất chọn Server 0,0.007,0.0009,0.3333,0.0
+Tần suất chọn Server 1,0.4071,0.0143,0.3333,0.0
+Tần suất chọn Server 2,0.586,0.0145,0.3333,0.0

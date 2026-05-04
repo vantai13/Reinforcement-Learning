@@ -1,0 +1,20 @@
+[project]
+name = "reinforcement-learning"
+version = "0.1.0"
+description = "Reinforcement Learning labs"
+requires-python = ">=3.10"
+dependencies = [
+  "gymnasium==1.2.3",
+  "pygame==2.6.1",
+  "numpy==2.4.2",
+  "matplotlib>=3.9,<3.11",
+  "jupyter>=1.1.1",
+  "ipykernel>=6.29.5",
+]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false

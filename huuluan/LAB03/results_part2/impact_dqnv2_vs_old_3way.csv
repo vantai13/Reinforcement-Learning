@@ -1,0 +1,9 @@
+Metric,DQN_v2 (mới),DQN_v1_basic (cũ),RoundRobin
+tasks_accepted,130.08,50.31,123.39
+tasks_skipped,169.92,249.69,176.61
+avg_queue_time,86.1439,30.9546,87.1764
+load_deviation,0.0354,0.4378,0.0339
+server_0_freq,0.1536,1.0,0.3333
+server_1_freq,0.2235,0.0,0.3333
+server_2_freq,0.6229,0.0,0.3333
+total_reward,-142.2125,-296.2553,-145.16

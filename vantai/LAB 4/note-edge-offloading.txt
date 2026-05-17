@@ -1,0 +1,345 @@
+NOTE ON EDGEOFFLOADINGENV, BASELINE EVALUATION, AND COMPARISON
+
+This document explains the full design logic used in Lab 4.2.
+It focuses on three things:
+1. How EdgeOffloadingEnv is constructed.
+2. How the baseline policies are evaluated.
+3. How the final comparison is assembled.
+
+============================================================
+I. OVERALL PROBLEM VIEW
+============================================================
+
+The task models an offloading decision in a 2-layer system:
+- Layer 1: Device
+- Layer 2: Edge
+
+At each time step, the system receives a new task with the following properties:
+- input_size: size of the task data, measured in Mbit
+- workload: amount of computation, measured in Gcycles
+- uplink_rate: uplink transmission speed, measured in Mbps
+- edge_queue: waiting delay at the edge, measured in ms
+
+The agent must choose one of two actions:
+- action = 0: execute locally on the device
+- action = 1: offload the task to the edge
+
+The only optimization objective is to minimize latency.
+
+Since reward is defined as the negative of latency, maximizing reward is equivalent to minimizing latency.
+
+============================================================
+II. DESIGN OF EDGEOFFLOADINGENV
+============================================================
+
+------------------------------------------------------------
+1) State space and action space
+------------------------------------------------------------
+
+Observation space:
+- A 4-dimensional vector:
+  s = [input_size, workload, uplink_rate, edge_queue]
+
+Each component lies in a fixed range:
+- input_size   in [1.0, 20.0] Mbit
+- workload     in [0.1, 3.0] Gcycles
+- uplink_rate  in [2.0, 20.0] Mbps
+- edge_queue   in [0.0, 200.0] ms
+
+Action space:
+- Discrete(2) = {0, 1}
+
+Meaning:
+- This is a binary decision problem: local execution or edge offloading.
+
+------------------------------------------------------------
+2) Fixed system parameters
+------------------------------------------------------------
+
+- f_device = 1.0 GHz
+- f_edge   = 5.0 GHz
+- max_steps = 50
+
+Meaning:
+- The edge has a higher computation frequency than the device.
+- However, offloading to the edge also adds upload delay and queueing delay.
+- Therefore, no single action is always optimal.
+
+------------------------------------------------------------
+3) Latency formulas and their interpretation
+------------------------------------------------------------
+
+3.1. Device execution latency:
+
+T_device = (workload / f_device) * 1000
+
+Interpretation:
+- workload / f_device gives the local processing time in seconds under a consistent unit assumption.
+- Multiplying by 1000 converts the value to milliseconds.
+- T_device includes only local computation cost.
+
+3.2. Upload latency:
+
+T_upload = (input_size / uplink_rate) * 1000
+
+Interpretation:
+- input_size / uplink_rate represents the transmission time to send the task to the edge.
+- Multiplying by 1000 converts seconds to milliseconds.
+- This term becomes large when uplink_rate is low or input_size is large.
+
+3.3. Edge execution latency:
+
+T_edge = T_upload + edge_queue + (workload / f_edge) * 1000
+
+Interpretation:
+- Term 1: upload delay.
+- Term 2: queueing delay at the edge.
+- Term 3: computation delay at the edge, which is smaller than on the device because f_edge is larger.
+
+3.4. Selected latency based on action:
+
+selected_latency =
+- T_device, if action = 0
+- T_edge,   if action = 1
+
+3.5. Reward:
+
+reward = - selected_latency / 1000
+
+Reward meaning:
+- selected_latency is in milliseconds.
+- Dividing by 1000 scales the value to a smaller numeric range.
+- The negative sign turns latency minimization into reward maximization.
+
+------------------------------------------------------------
+4) State sampling mechanism
+------------------------------------------------------------
+
+At every step, the environment generates a new random task/state using uniform sampling:
+- input_size  ~ Uniform(1.0, 20.0)
+- workload    ~ Uniform(0.1, 3.0)
+- uplink_rate ~ Uniform(2.0, 20.0)
+- edge_queue  ~ Uniform(0.0, 200.0)
+
+Modeling meaning:
+- The workload and network conditions vary over time.
+- The agent must make online decisions under changing conditions.
+
+------------------------------------------------------------
+5) Episode lifecycle
+------------------------------------------------------------
+
+- reset():
+  + set step_count = 0
+  + sample the first state
+  + return (observation, info)
+
+- step(action):
+  + verify that action is valid (0 or 1)
+  + compute T_device and T_edge from the current state
+  + select selected_latency according to the action
+  + compute the reward
+  + increase step_count
+  + set truncated = True if the maximum number of steps is reached
+  + sample the next state
+  + return (next_obs, reward, terminated, truncated, info)
+
+- Episode termination rule:
+  + terminated is always False because there is no success/failure terminal state.
+  + truncated becomes True when step_count reaches max_steps = 50.
+
+------------------------------------------------------------
+6) Contents of the info dictionary
+------------------------------------------------------------
+
+info includes:
+- latency: the selected latency according to the chosen action
+- latency_device: latency if the task were processed locally
+- latency_edge: latency if the task were offloaded
+- action: the action that was taken
+- action_name: either "device" or "edge"
+
+Purpose:
+- Supports debugging.
+- Supports metric collection during evaluation.
+- Helps explain why the policy chose a specific action.
+
+============================================================
+III. PSEUDOCODE FOR EDGEOFFLOADINGENV
+============================================================
+
+PSEUDOCODE 1: Initialize the environment
+- Set f_device, f_edge, and max_steps
+- Define the action space as {0, 1}
+- Define the 4-dimensional observation range
+- Initialize state as empty and step_count = 0
+
+PSEUDOCODE 2: Sample a state
+- Sample input_size in [1, 20]
+- Sample workload in [0.1, 3.0]
+- Sample uplink_rate in [2, 20]
+- Sample edge_queue in [0, 200]
+- Return the 4-dimensional state vector
+
+PSEUDOCODE 3: Compute latencies
+- Extract the four state variables
+- Compute T_device
+- Compute T_upload
+- Compute T_edge
+- Return (T_device, T_edge)
+
+PSEUDOCODE 4: reset
+- Set step_count back to 0
+- Sample a new initial state
+- Return the state and an empty info dictionary
+
+PSEUDOCODE 5: step(action)
+- Check whether action is valid
+- Compute T_device and T_edge from the current state
+- Select selected_latency based on the action
+- Compute reward as the negative scaled latency
+- Increase step_count
+- Mark truncated if max_steps is reached
+- Sample the next state
+- Store detailed metrics in info
+- Return (next_state, reward, terminated=False, truncated, info)
+
+============================================================
+IV. BASELINE EVALUATION
+============================================================
+
+The notebook uses one shared evaluation function named evaluate_edge_policy.
+
+------------------------------------------------------------
+1) Why use a shared evaluation function?
+------------------------------------------------------------
+
+The shared evaluation function is designed to:
+- Make comparisons fair across all policies.
+- Use the same metric pipeline for baselines and RL methods.
+- Return structured results that can be converted into tables and charts.
+
+------------------------------------------------------------
+2) Evaluation workflow for one policy
+------------------------------------------------------------
+
+For each episode (default: 100 episodes):
+- Create a fresh environment with a deterministic seed.
+- Reset the environment and obtain the initial state.
+- Repeat until the episode ends:
+  + call action_fn(state, env) to select an action
+  + call step(action)
+  + store the reward for that step
+  + store the latency value from info["latency"]
+  + count how many times action 0 and action 1 were chosen
+- After the episode ends:
+  + compute the episode return
+  + compute the average latency of that episode
+  + append all step-level latencies to a global list
+
+After all episodes finish:
+- Compute avg_latency over all collected latencies.
+- Compute p95_latency as the 95th percentile.
+- Compute avg_reward over episode returns.
+- Compute device_pct and edge_pct.
+
+------------------------------------------------------------
+3) Baselines included in the notebook
+------------------------------------------------------------
+
+Baseline 1 - Random:
+- Randomly choose between device and edge.
+- Serves as a weak reference point.
+
+Baseline 2 - Device-only:
+- Always choose action = 0.
+- Useful when uplink is poor or the edge queue is high.
+- Can be weak when the workload is large because the device is slower.
+
+Baseline 3 - Edge-only:
+- Always choose action = 1.
+- Useful when uplink is strong and the edge queue is low.
+- Can be weak when transmission delay becomes large.
+
+Baseline 4 - Greedy latency:
+- At every step, compute both T_device and T_edge.
+- Choose the action with the smaller immediate latency.
+- This is a strong heuristic and acts as a useful benchmark.
+
+------------------------------------------------------------
+4) Meaning of the baseline metrics
+------------------------------------------------------------
+
+Metric A - Avg Latency (ms):
+- The average of all step-level latencies.
+- Lower values are better.
+
+Metric B - P95 Latency (ms):
+- The 95th percentile latency.
+- This reflects tail latency and service consistency.
+
+Metric C - Avg Reward:
+- The average episode reward.
+- Since reward is negative latency, a higher value means better performance.
+
+Metric D - Device % / Edge %:
+- The proportion of actions assigned to device or edge.
+- This reveals the policy’s behavior preference.
+
+============================================================
+V. FINAL COMPARISON
+============================================================
+
+------------------------------------------------------------
+1) Methods included in the final table
+------------------------------------------------------------
+
+The final comparison includes:
+- Random
+- Device-only
+- Edge-only
+- Greedy latency
+- Actor-Critic
+- A2C
+
+------------------------------------------------------------
+2) Structure of the final comparison table
+------------------------------------------------------------
+
+Column 1: Method
+- The name of the policy or algorithm.
+
+Column 2: Avg Latency
+- Overall average latency.
+
+Column 3: P95 Latency
+- Tail latency.
+
+Column 4: Avg Reward
+- Mean reward after converting latency into a negative value.
+
+Column 5: Gap to Greedy
+- Formula:
+  gap = avg_latency_method - avg_latency_greedy
+- Interpretation:
+  + gap > 0 means worse than greedy.
+  + gap = 0 means equal to greedy.
+  + gap < 0 means better than greedy.
+
+Column 6 and 7: Device % / Edge %
+- The behavioral distribution of the method over the evaluation set.
+
+------------------------------------------------------------
+3) Comparison plots
+------------------------------------------------------------
+
+Plot 1 - Avg Latency by method:
+- Goal: show which method is best on average.
+
+Plot 2 - P95 Latency by method:
+- Goal: show which method is best in the tail.
+
+Plot 3 - Action distribution for RL methods:
+- Goal: inspect whether the policy tends to prefer device or edge.
+- This also helps explain the observed latency metrics.
+
